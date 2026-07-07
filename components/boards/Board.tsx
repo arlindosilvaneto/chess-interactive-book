@@ -15,6 +15,8 @@ export interface BoardProps {
   fen: string;
   orientation?: "white" | "black";
   interactive?: boolean;
+  /** Rank/file labels along the board edge. Defaults to true; small preview boards turn this off since it's just clutter at that size. */
+  showNotation?: boolean;
   /** The move that produced `fen`, if any — highlighted on the board so readers can spot it at a glance. */
   lastMove?: { from: string; to: string } | null;
   /** Return true to accept the drop (legal move), false to reject it (snaps back). */
@@ -30,6 +32,7 @@ export function Board({
   fen,
   orientation = "white",
   interactive = true,
+  showNotation = true,
   lastMove,
   onPieceDrop,
 }: BoardProps) {
@@ -57,7 +60,7 @@ export function Board({
           boardOrientation: orientation,
           allowDragging: interactive,
           onPieceDrop: interactive ? handlePieceDrop : undefined,
-          showNotation: true,
+          showNotation,
           // Spread onto each square's own style by react-chessboard, so this
           // merges cleanly with its other square styling (drop targets,
           // dragged-piece square, etc.) instead of replacing it.

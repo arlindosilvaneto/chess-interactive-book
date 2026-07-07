@@ -119,6 +119,7 @@ export function AnalysisLines({
                         fen={step.fenAfter}
                         orientation={orientation}
                         interactive={false}
+                        showNotation={false}
                       />
                     </TooltipContent>
                   </Tooltip>
