@@ -15,6 +15,8 @@ export interface EngineEvalBarProps {
   score: EngineScore | undefined;
   /** Whose move the analyzed position is at — needed to normalize the score to White's perspective. */
   sideToMove: "w" | "b";
+  /** Matches the board's orientation, so White's fill anchors to whichever edge White's pieces sit on. */
+  orientation?: "white" | "black";
   className?: string;
 }
 
@@ -53,10 +55,21 @@ export function formatScoreLabel(
   return whitePawns > 0 ? `+${whitePawns.toFixed(1)}` : whitePawns.toFixed(1);
 }
 
-/** Vertical eval bar: white fill grows from the bottom, animated on score changes. */
-export function EngineEvalBar({ score, sideToMove, className }: EngineEvalBarProps) {
+/**
+ * Vertical eval bar: white fill anchors to whichever edge White's pieces
+ * are on, so flipping the board (orientation) flips the bar with it instead
+ * of leaving White's fill glued to the bottom regardless of which side is
+ * actually facing the viewer down there.
+ */
+export function EngineEvalBar({
+  score,
+  sideToMove,
+  orientation = "white",
+  className,
+}: EngineEvalBarProps) {
   const whiteFillPercent = scoreToWhiteFillPercent(score, sideToMove);
   const label = formatScoreLabel(score, sideToMove);
+  const isFlipped = orientation === "black";
 
   return (
     <div
@@ -72,7 +85,12 @@ export function EngineEvalBar({ score, sideToMove, className }: EngineEvalBarPro
         // min-h is a defensive floor, not the intended sizing mechanism —
         // self-stretch above should make this match the board's full
         // height; this just guarantees it's never a sliver if that fails.
-        "relative flex min-h-48 w-7 shrink-0 flex-col-reverse self-stretch overflow-hidden rounded-lg bg-neutral-800 ring-1 ring-foreground/10",
+        "relative flex min-h-48 w-7 shrink-0 self-stretch overflow-hidden rounded-lg bg-neutral-800 ring-1 ring-foreground/10",
+        // flex-col-reverse anchors the single child to the bottom (White's
+        // side when orientation is "white"); flex-col anchors it to the top
+        // instead, so flipping the board also flips which edge White's fill
+        // grows from.
+        isFlipped ? "flex-col" : "flex-col-reverse",
         className
       )}
       role="meter"
@@ -89,8 +107,14 @@ export function EngineEvalBar({ score, sideToMove, className }: EngineEvalBarPro
         transition={{ type: "spring", stiffness: 260, damping: 30 }}
       />
       {/* A small pill behind the label keeps it legible regardless of
-          whether the fill happens to sit behind it. */}
-      <span className="pointer-events-none absolute inset-x-0.5 bottom-0.5 rounded bg-background/80 py-0.5 text-center text-[11px] font-bold text-foreground">
+          whether the fill happens to sit behind it. Pinned to whichever
+          edge is currently the bottom of the bar, matching the flip above. */}
+      <span
+        className={cn(
+          "pointer-events-none absolute inset-x-0.5 rounded bg-background/80 py-0.5 text-center text-[11px] font-bold text-foreground",
+          isFlipped ? "top-0.5" : "bottom-0.5"
+        )}
+      >
         {label}
       </span>
     </div>

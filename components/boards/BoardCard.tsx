@@ -237,6 +237,7 @@ export function BoardCard({
                   : undefined
               }
               sideToMove={sideToMove}
+              orientation={orientation}
             />
             <div className="min-w-0 flex-1">
               <Board
