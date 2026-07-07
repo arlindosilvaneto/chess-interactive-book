@@ -1,0 +1,23 @@
+[Book "Morphy's Immortal Miniatures"]
+[BookDescription "A short collection of Paul Morphy's most instructive quick wins, annotated for club players."]
+[BookAuthor "Chess Interactive Book"]
+[Event "Paris Opera"]
+[Site "Paris, France"]
+[Date "1858.11.02"]
+[Round "?"]
+[White "Paul Morphy"]
+[Black "Duke Karl / Count Isouard"]
+[Result "1-0"]
+[ECO "C41"]
+
+1. e4 { The Opera Game: Morphy plays a casual game against two amateur
+allies during a night at the opera, and turns it into the most famous
+miniature in chess history. } e5 2. Nf3 d6 3. d4 Bg4 { A dubious pin.
+Black should prefer 3...exd4 or 3...Nf6, developing a piece instead of
+attacking one that can simply move away with tempo. } (3... exd4 4. Nxd4
+Nf6 5. Nc3 { and Black has a normal, slightly passive but solid
+position. }) 4. dxe5 Bxf3 5. Qxf3 dxe5 6. Bc4 Nf6 7. Qb3 { Double
+attack on b7 and f7. } Qe7 8. Nc3 { Morphy calmly develops instead of
+grabbing the pawn immediately, since 8. Qxb7 Qb4+ trades queens into an
+equal ending. } c6 9. Bg5 b5 10. Nxb5 cxb5 11. Bxb5+ Nbd7 12. O-O-O Rd8
+13. Rxd7 Rxd7 14. Rd1 Qe6 15. Bxd7+ Nxd7 16. Qb8+ Nxb8 17. Rd8# 1-0

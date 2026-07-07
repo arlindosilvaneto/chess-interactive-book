@@ -12,6 +12,14 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Vendored Stockfish WASM engine builds, copied verbatim from
+    // node_modules/stockfish/bin/ by scripts/copy-stockfish-assets.mjs —
+    // not our source, shouldn't be linted.
+    "public/stockfish/**",
+    // Vendored AI Elements component source, installed verbatim via
+    // `npx ai-elements add` from the shadcn-style registry — not our source,
+    // shouldn't be linted or hand-edited to satisfy our lint rules.
+    "components/ai-elements/**",
   ]),
 ]);
 

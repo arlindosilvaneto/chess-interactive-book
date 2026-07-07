@@ -1,0 +1,23 @@
+[Book "Ruy Lopez Repertoire Sketches"]
+[BookDescription "Side-by-side comparisons of Ruy Lopez main lines and their most respected defenses."]
+[BookAuthor "Chess Interactive Book"]
+[Event "Ruy Lopez study: Closed vs. Berlin"]
+[Site "?"]
+[Date "2026.01.01"]
+[Round "?"]
+[White "Study"]
+[Black "Study"]
+[Result "*"]
+[SetUp "1"]
+[FEN "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 4 3"]
+[ECO "C65"]
+
+3. Bb5 { Starting from the Ruy Lopez tabiya after 1.e4 e5 2.Nf3 Nc6, this
+chapter compares the main-line Closed Ruy Lopez with the Berlin Defense
+sideline below — a good test case for a chapter that begins mid-game via
+a [FEN]/[SetUp] header rather than move 1. } a6 (3... Nf6 4. O-O Nxe4 5. d4
+Nd6 6. Bxc6 dxc6 7. dxe5 Nf5 8. Qxd8+ Kxd8 { The Berlin Wall: Black heads
+into a slightly worse but famously solid endgame, made popular at the top
+level by Kramnik against Kasparov in their 2000 world championship match. })
+4. Ba4 Nf6 5. O-O Be7 6. Re1 b5 7. Bb3 d6 { The Closed Ruy: a rich,
+strategic middlegame with chances for both sides. } *
