@@ -1,19 +1,22 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-export type AnalysisSource = "cloud" | "local";
+export type AnalysisSource = "cloud" | "local" | "server";
 
 export interface EngineSettings {
   /**
    * Where position evaluation comes from: Lichess's Cloud Evaluation API
-   * (a lookup against community-contributed analysis, no local computation)
-   * or Stockfish running locally in a Web Worker. Defaults to "cloud" — it
-   * needs no WASM/worker loading, which has been the source of most local
-   * engine issues; local remains available for positions Lichess hasn't
+   * (a lookup against community-contributed analysis, no local computation),
+   * Stockfish running locally in a Web Worker, or the same engine running
+   * server-side (`/api/engine/evaluate`, `lib/engine/nodeStockfishEngine.ts`)
+   * — same computation as "local" but off the reader's device, no
+   * WASM-in-browser boot cost. Defaults to "cloud" — it needs no
+   * WASM/worker loading, which has been the source of most local engine
+   * issues; local/server remain available for positions Lichess hasn't
    * cached (a real gap for deep/obscure book lines).
    */
   analysisSource: AnalysisSource;
-  /** UCI `go depth N`. Local engine only. */
+  /** UCI `go depth N`. Local and server engines only. */
   depth: number;
   /** UCI `setoption name MultiPV value N` / cloud-eval `multiPv` param. Used by both sources. */
   multiPv: number;

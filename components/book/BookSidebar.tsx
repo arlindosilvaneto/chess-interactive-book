@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ArrowLeftIcon, PanelLeftCloseIcon, PanelLeftOpenIcon } from "lucide-react";
@@ -9,6 +9,18 @@ import { cn } from "@/lib/utils";
 import type { PgnTags } from "@/types/chapter";
 
 import { BookCover } from "./BookCover";
+
+/**
+ * At or below this, the sidebar's fixed `w-72` (18rem) is proportionally too
+ * wide relative to the viewport. Deliberately `max-width: 1024px` (inclusive)
+ * rather than matching the `lg` breakpoint's own `min-width: 1024px` — 1024
+ * is a extremely common tablet-*landscape* width (e.g. iPad landscape is
+ * exactly 1024×768), and treating it as "desktop, don't collapse" left the
+ * sidebar's full width eating into that already-tight viewport, squeezing
+ * the article column down to a sliver. Anything wider than 1024 (real
+ * desktops) still gets the expanded default.
+ */
+const TABLET_OR_SMALLER_MEDIA_QUERY = "(max-width: 1024px)";
 
 export interface ChapterSummary {
   id: string;
@@ -38,8 +50,24 @@ export function BookSidebar({
   bookCover,
   chapters,
 }: BookSidebarProps) {
+  // Starts expanded (matches the server-rendered markup, avoiding a
+  // hydration mismatch) and collapses itself once, on mount, if the initial
+  // viewport is narrower than desktop — tablets get the fixed `w-72` rail
+  // eating a much bigger share of the screen than on desktop, so defaulting
+  // to the icon-only collapsed rail there leaves more room for the actual
+  // reading content. This is a one-time default, not an ongoing constraint:
+  // it deliberately does NOT re-collapse on window resize afterward, so a
+  // reader who manually expands it keeps it expanded regardless of how they
+  // resize the window.
   const [collapsed, setCollapsed] = useState(false);
   const pathname = usePathname();
+
+  useEffect(() => {
+    if (window.matchMedia(TABLET_OR_SMALLER_MEDIA_QUERY).matches) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time viewport check on mount, not an ongoing sync loop
+      setCollapsed(true);
+    }
+  }, []);
 
   if (collapsed) {
     return (

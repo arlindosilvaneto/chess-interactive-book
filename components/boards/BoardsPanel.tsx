@@ -11,6 +11,8 @@ import { BoardCard } from "./BoardCard";
 
 export interface BoardsPanelProps {
   chapter: Chapter;
+  /** Globally-unique store key for this chapter (`${bookId}__${chapter.id}`) — see `useChapterStore`'s `initChapter` doc comment. */
+  chapterKey: string;
 }
 
 /** True while focus is in a text field — arrow keys should type there, not navigate boards. */
@@ -31,17 +33,17 @@ function isTypingTarget(target: EventTarget | null): boolean {
  * and out when closed (only ever the last/deepest one, enforced in
  * BoardCard via `isLast`).
  */
-export function BoardsPanel({ chapter }: BoardsPanelProps) {
+export function BoardsPanel({ chapter, chapterKey }: BoardsPanelProps) {
   const initChapter = useChapterStore((state) => state.initChapter);
   const closeBoardAt = useChapterStore((state) => state.closeBoardAt);
-  const slice = useChapterStore((state) => state.chapters[chapter.id]);
+  const slice = useChapterStore((state) => state.chapters[chapterKey]);
 
   const boardRefs = useRef<(HTMLDivElement | null)[]>([]);
   const previousCountRef = useRef(0);
 
   useEffect(() => {
-    initChapter(chapter);
-  }, [chapter, initChapter]);
+    initChapter(chapterKey, chapter);
+  }, [chapter, chapterKey, initChapter]);
 
   // ArrowRight/ArrowLeft always step the deepest (last) open board — the
   // same one its own Next/Previous button would move.
@@ -50,7 +52,7 @@ export function BoardsPanel({ chapter }: BoardsPanelProps) {
       if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
       if (isTypingTarget(event.target)) return;
 
-      const current = useChapterStore.getState().chapters[chapter.id];
+      const current = useChapterStore.getState().chapters[chapterKey];
       if (!current) return;
 
       const lastIndex = current.boardPaths.length - 1;
@@ -60,7 +62,7 @@ export function BoardsPanel({ chapter }: BoardsPanelProps) {
       useChapterStore
         .getState()
         .navigateBoardAt(
-          chapter.id,
+          chapterKey,
           lastIndex,
           event.key === "ArrowRight"
             ? stepForward(current.root, activePath)
@@ -70,7 +72,7 @@ export function BoardsPanel({ chapter }: BoardsPanelProps) {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [chapter.id]);
+  }, [chapterKey]);
 
   // "Roll to" the deepest board whenever the stack's length changes: scrolls
   // to the newly-opened board when a sideline is selected, and back to the
@@ -96,14 +98,13 @@ export function BoardsPanel({ chapter }: BoardsPanelProps) {
         {slice.boardPaths.map((path, index) => (
           <BoardCard
             key={index}
-            chapterId={chapter.id}
+            chapterId={chapterKey}
             root={slice.root}
             path={path}
             levelIndex={index}
             introComment={chapter.introComment}
             isLast={index === slice.boardPaths.length - 1}
-            defaultAnalysisEnabled={index === 0}
-            onClose={index > 0 ? () => closeBoardAt(chapter.id, index) : undefined}
+            onClose={index > 0 ? () => closeBoardAt(chapterKey, index) : undefined}
             containerRef={(element) => {
               boardRefs.current[index] = element;
             }}

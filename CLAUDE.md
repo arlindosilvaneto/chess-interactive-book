@@ -85,21 +85,32 @@ text changes are animated via `motion`'s `AnimatePresence` (imported from `motio
 Framer Motion successor) — this is a stated product requirement, not optional polish, so don't
 strip it out for convenience.
 
-### Position evaluation: cloud (default) + local Stockfish
+### Position evaluation: cloud (default), local, or server Stockfish
 
-Two interchangeable sources, selected per-user via `EngineSettings.analysisSource` (Zustand,
+Three interchangeable sources, selected per-user via `EngineSettings.analysisSource` (Zustand,
 `lib/store/engineSettingsStore.ts`, persisted, defaults to `"cloud"`). `BoardCard.tsx` always calls
-*both* `useCloudEval` and `useStockfish` (rules of hooks); which one is `enabled` follows
-`analysisSource`, **plus an automatic fallback**: when `analysisSource === "cloud"` and the cloud
-lookup comes back `notFound` (or errors) for the current position, `BoardCard` also enables local
-Stockfish for that position and switches `engine` (the value everything below — eval bar, analysis
-lines, footer status — reads) over to it. This is a per-position, live re-evaluation (`usingFallback`
-in `BoardCard.tsx`), not a one-time setting — the same board can serve cloud data for one move and
-silently fail over to local for the next if that specific position isn't cached, then back to cloud
-again once you're back on a covered line. The fallback is never silent: a "fallback" badge (amber,
-`CpuIcon`) appears next to the board's title badge, and the footer status line appends
-`(cloud fallback)` once it's producing lines — don't remove these when touching this logic, the whole
-point is that switching engines mid-analysis should be obvious, not surprising.
+*all three* of `useCloudEval`, `useStockfish`, and `useServerStockfish` (rules of hooks); which ones
+are `enabled` follows `analysisSource`, **plus an automatic fallback CHAIN**:
+
+```
+cloud  → server → local   (cloud has nothing cached / errors → try server → then local)
+server → local            (server errors → try local)
+local                     (no further fallback — it's already the last resort)
+```
+
+`BoardCard.tsx` computes `cloudFailed`/`serverFailed` from each hook's own `notFound`/`error`, derives
+`usingServerFallback`/`usingLocalFallback` from those (mutually exclusive — see the boolean logic right
+above where `engine` is picked), and switches `engine` (the value everything below — eval bar,
+analysis lines, footer status — reads) to whichever tier is currently live. This is a per-position,
+live re-evaluation, not a one-time setting — the same board can serve cloud data for one move and
+silently hop to server (or all the way to local) for the next if that specific position isn't cached,
+then back to cloud again once you're back on a covered line. The fallback is never silent: an amber
+badge (`CpuIcon`/spinner, labeled "server fallback" or "local fallback") appears next to the board's
+title badge, and the footer status line appends `(server fallback)`/`(local fallback)` once it's
+producing lines — don't remove these when touching this logic, the whole point is that switching
+engines mid-analysis should be obvious, not surprising. The Analysis-source picker in
+`EngineSettingsPanel.tsx` is ordered cloud → server → local to match this chain — keep it that way if
+the chain order ever changes.
 
 **Cloud** (`components/engine/useCloudEval.ts`): looks up Lichess's Cloud Evaluation API
 (`GET /api/lichess/cloud-eval` → `https://lichess.org/api/cloud-eval`, proxied like every other
@@ -131,6 +142,75 @@ so a broken/missing engine asset shows a visible error instead of an infinite "L
 class of local-engine loading failure (never fully diagnosed in a real browser, since none was
 available during development) is exactly why cloud is the default source, not a replacement for local.
 
+**Server** (`components/engine/useServerStockfish.ts` → `POST /api/engine/evaluate` →
+`lib/engine/nodeStockfishEngine.ts`): a third source — the same engine build as "local", but run in
+the Node.js function instead of the reader's browser, trading a network round-trip for skipping the
+in-browser WASM boot. Runs a bounded `go depth N` and returns the finished result in one response
+(no streaming/SSE — Vercel Functions are request/response, and a depth-bounded search has a natural
+end, unlike the browser Worker's open-ended `go infinite` semantics). The Node engine instance is a
+module-scope singleton reused across warm invocations (avoids re-instantiating WASM per request), and
+`evaluatePosition` serializes concurrent calls through a queue — the engine has exactly one output
+listener slot and can only run one search at a time.
+
+This does **not** go through the `stockfish` package's own Node entry point (`require("stockfish")`).
+Two real, non-obvious problems were found only by hitting the actual dev server (not by reading the
+source, and not by testing in plain Node — both looked fine in isolation):
+- `stockfish`'s `index.js` does `require(path.join(__dirname, "bin", filename))` — a *runtime-computed*
+  path. Turbopack can't statically follow that and fails the whole route with
+  `Module not found ... <dynamic>` the instant it's hit. Fix: `nodeStockfishEngine.ts` requires the
+  exact build file directly with a **literal string**
+  (`require("stockfish/bin/stockfish-18-lite-single.js")`) — as statically-resolvable to the bundler
+  as a normal import — and replicates the handful of lines of setup `index.js` would otherwise do
+  (`locateFile`, the UCI handshake, wrapping `sendCommand`).
+- The sibling `.wasm` file's path can't be found via `require.resolve(...)` either — Turbopack rewrites
+  that into its own virtual `[project]/...` module identifier rather than a real filesystem path, which
+  throws `ENOENT` when hit with `fs.readFileSync`. Built from `process.cwd()` instead, which is exactly
+  where `outputFileTracingIncludes` (`next.config.ts`) places `node_modules/stockfish/bin/**` in a
+  deployed function.
+- `index.js` also never sets `engine.listener`, so by default every UCI line goes to
+  `console.log`/`console.error` instead of being readable programmatically — the compiled module's
+  `print`/`printErr` callbacks check `.listener` on the exact config object you pass in, at call time,
+  so setting it after construction works, it's just an unlisted side door rather than documented API.
+
+**CRITICAL gotcha, found live in production-like testing (not from reading the source)**: the vendored
+engine's own Node-detection shim (inside the huge compiled IIFE, not anything this app wrote) does
+`"undefined"!=typeof global && ...process... && "undefined"!=typeof fetch && (...,fetch=null)` —
+unconditionally nulling the **global** `fetch` the moment it detects it's running under Node, as an
+old-Node-without-native-fetch compat shim that never checks whether `fetch` already works. Since this
+engine runs in the same Node.js process as every other route, the first time ANY board uses the server
+analysis source, `fetch` silently breaks for the rest of the server's process lifetime — the Lichess
+proxy and the AI SDK's calls in `/api/chat` both started throwing `TypeError: fetch is not a function`
+immediately afterward, confirmed live. `createEngine()` in `nodeStockfishEngine.ts` works around this
+by snapshotting `globalThis.fetch` before calling the factory and restoring it right after — safe
+because the nulling happens synchronously (before any `await`), and this engine never needs fetch
+itself (its `locateFile` already routes WASM loading through `fs`, not the network). **Do not remove
+this restore** when touching `createEngine()` — it's the only thing standing between this feature and
+silently breaking every other route on the server.
+
+**Operational note**: an internal engine fault (seen while developing this against a corrupted asset
+path) can call `process.exit()` inside the Node process, not just throw/reject — Emscripten's abort
+path does this. In a traditional long-lived server this would take down every concurrent user; on
+Vercel's per-invocation function model it instead just costs the next request a cold start on a fresh
+container. Acceptable for this app's scale; worth knowing before assuming a promise rejection is the
+only failure mode to guard against here.
+
+**Debouncing** (`lib/hooks/useDebouncedValue.ts`): all three hooks (cloud, local, server) split
+their work into two effects keyed on the raw `fen` vs. a `useDebouncedValue(fen, N)`-derived one.
+The raw-`fen` effect only ever does cheap, synchronous things — a cache hit resolves instantly, an
+uncached position clears `lines`/flips to a loading state — so paging quickly through a line never
+shows a stale score left over from a previous position. The actual expensive call (the Lichess
+fetch, telling the Stockfish worker to stop/reposition/go, or the `/api/engine/evaluate` request) is
+keyed on the debounced value, so holding an arrow key or clicking "next" repeatedly fires it once,
+after the position settles, not once per intermediate position. Don't collapse this back into a
+single fen-keyed effect — that's what caused the request/search spam this was added to fix.
+
+`N` deliberately differs by source: local/server are 300ms (`useStockfish.ts`,
+`useServerStockfish.ts`) since their only cost is this app's own CPU; cloud is **1000ms**
+(`useCloudEval.ts`) since it's a shared third-party resource with its own rate limit — confirmed
+live, even the standard starting position (always cached) started returning `429 Too many requests`
+after enough cumulative requests during this app's own development. Don't shrink cloud's debounce
+back down to match the others without re-considering that tradeoff.
+
 ### LLM commentary (BYOK)
 
 This app has no server-side LLM credentials and does **not** use the Vercel AI Gateway — the product
@@ -145,7 +225,24 @@ anything else — `ChatRequestBody` (`types/llm.ts`) is a compile-time type only
 against a malformed request at runtime, so don't remove that validation when touching this route.
 It builds a rating-calibrated system prompt (`lib/ai/systemPrompt.ts`, four tiers from beginner to
 1800+) and calls `streamText` with `lib/ai/tools/lichess-tools.ts`'s opening-explorer tool, returning
-`toUIMessageStreamResponse()`. `components/llm/CommentaryPanel.tsx` consumes it via `useChat`
+`toUIMessageStreamResponse()`.
+
+**The opening-explorer tool is also BYOK**, same as the LLM API key — `LlmSettings.lichessApiToken`
+(`types/llm.ts`), entered in `LlmSettingsPanel.tsx`, sent per-request alongside `llm.apiKey`. This is
+deliberately a `createLichessTools(lichessApiToken)` **factory** (`lib/ai/tools/lichess-tools.ts`),
+not a static tool export — the token is only known per-request, from the validated chat body, not at
+module load time. Two things worth preserving if you touch this: (1) the tool's `execute` never
+throws — a thrown error surfaces in the chat UI as a generic, unhelpful "An error occurred" card, so
+both the no-token case and any upstream failure are instead returned as a normal
+`{available: false, reason}` result, letting the model see why and respond naturally; (2) the
+missing-token check happens *before* attempting the network call (a certain failure otherwise), not
+as a caught exception — Lichess's opening-explorer endpoints are `security: [OAuth2: []]` per their
+own OpenAPI spec (confirmed by fetching `github.com/lichess-org/api`'s spec directly, not assumed —
+any valid personal token works, no specific scope), unlike the Cloud Evaluation endpoint this app also
+uses, which is explicitly `security: []` (public, confirmed the same way). Don't conflate the two
+endpoints' auth requirements again.
+
+`components/llm/CommentaryPanel.tsx` consumes it via `useChat`
 (`@ai-sdk/react`) with a `DefaultChatTransport` whose `body` callback reads the chapter/LLM-settings
 stores imperatively at send time (so it always reflects the currently-focused board's FEN, not a
 stale value captured at mount) and renders both messages and streaming errors via the installed
@@ -162,9 +259,11 @@ Lichess's public API does not reliably send CORS headers, so browser code cannot
 (`lichess`/`masters`/`player` → `explorer.lichess.org`, `tablebase` → `tablebase.lichess.org`,
 `cloud-eval` → `lichess.org/api/cloud-eval`) — the rest of the catch-all path is discarded rather than
 concatenated into the upstream URL, which is deliberate: don't change this to pass through arbitrary
-paths, it would open an SSRF hole. Add `LICHESS_API_TOKEN` to `.env.local` to make the
-explorer/masters/player lookups work (unauthenticated requests 401 — expected, not a bug); tablebase
-and cloud-eval lookups work without it.
+paths, it would open an SSRF hole. `LICHESS_API_TOKEN` in `.env.local` is a server-operator fallback
+for this proxy's own explorer/masters/player routes only (nothing client-side currently calls them —
+unauthenticated requests 401, expected, not a bug); it does **not** feed the opening-explorer AI tool,
+which is BYOK per-user instead — see "LLM commentary" above. Tablebase and cloud-eval lookups work
+without any token either way.
 
 ## Scope boundaries (deliberately deferred, not oversights)
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { CloudIcon, CpuIcon } from "lucide-react";
+import { CloudIcon, CpuIcon, ServerIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -76,16 +76,33 @@ function SettingRow({
   );
 }
 
-const SOURCE_OPTIONS: { value: AnalysisSource; label: string; description: string }[] = [
+// Ordered to match the automatic fallback chain (cloud → server → local; or
+// server → local when server is the selected source) so the UI reads the
+// same order the engine actually tries things in.
+const SOURCE_OPTIONS: {
+  value: AnalysisSource;
+  label: string;
+  description: string;
+  icon: typeof CloudIcon;
+}[] = [
   {
     value: "cloud",
     label: "Lichess cloud",
     description: "Looks up community-analyzed positions — no local computation.",
+    icon: CloudIcon,
+  },
+  {
+    value: "server",
+    label: "Server Stockfish",
+    description:
+      "Runs the same engine on the server instead of your device — works for any position, without the browser WASM boot cost.",
+    icon: ServerIcon,
   },
   {
     value: "local",
     label: "Local Stockfish",
     description: "Runs Stockfish 18 in your browser (WASM) — works for any position.",
+    icon: CpuIcon,
   },
 ];
 
@@ -111,6 +128,11 @@ export function EngineSettingsPanel() {
   );
 
   const isLocal = settings.analysisSource === "local";
+  const isServer = settings.analysisSource === "server";
+  // Depth applies to any engine that actually runs a bounded search
+  // (local or server); hash/threads below are WASM-in-browser-specific
+  // tuning that the server engine doesn't expose.
+  const runsOwnSearch = isLocal || isServer;
 
   return (
     <Card>
@@ -124,9 +146,9 @@ export function EngineSettingsPanel() {
       <CardContent className="flex flex-col gap-5">
         <div className="flex flex-col gap-2">
           <Label>Analysis source</Label>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             {SOURCE_OPTIONS.map((option) => {
-              const Icon = option.value === "cloud" ? CloudIcon : CpuIcon;
+              const Icon = option.icon;
               const selected = settings.analysisSource === option.value;
               return (
                 <Tooltip key={option.value}>
@@ -149,7 +171,9 @@ export function EngineSettingsPanel() {
           <span className="text-xs text-muted-foreground">
             {settings.analysisSource === "cloud"
               ? "Fast and reliable, but only covers positions Lichess has already cached — expect gaps in deep or unusual lines."
-              : "Works for any position, but runs in your browser and can be slower or fail to load on some devices."}
+              : settings.analysisSource === "local"
+                ? "Works for any position, but runs in your browser and can be slower or fail to load on some devices."
+                : "Works for any position, run off-device — trades a network round-trip for skipping the in-browser WASM boot."}
           </span>
         </div>
 
@@ -166,7 +190,7 @@ export function EngineSettingsPanel() {
           value={settings.depth}
           min={6}
           max={30}
-          disabled={!isLocal}
+          disabled={!runsOwnSearch}
           onChange={setDepth}
         />
         <SettingRow

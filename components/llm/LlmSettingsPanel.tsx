@@ -16,6 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
 import { useLlmSettingsStore } from "@/lib/store/llmSettingsStore";
 import type { LlmProviderId } from "@/types/llm";
 
@@ -31,6 +32,7 @@ export function LlmSettingsPanel() {
   const setModel = useLlmSettingsStore((state) => state.setModel);
   const setApiKey = useLlmSettingsStore((state) => state.setApiKey);
   const setRating = useLlmSettingsStore((state) => state.setRating);
+  const setLichessApiToken = useLlmSettingsStore((state) => state.setLichessApiToken);
 
   return (
     <Card>
@@ -97,6 +99,35 @@ export function LlmSettingsPanel() {
             value={settings.rating}
             onChange={(event) => setRating(Number(event.target.value) || 0)}
           />
+        </div>
+
+        <Separator />
+
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="llm-lichess-token">Lichess API token (optional)</Label>
+          <Input
+            id="llm-lichess-token"
+            type="password"
+            autoComplete="off"
+            placeholder="lip_…"
+            value={settings.lichessApiToken ?? ""}
+            onChange={(event) => setLichessApiToken(event.target.value)}
+          />
+          <p className="text-xs text-muted-foreground">
+            Enables the opening-explorer tool during commentary (move popularity, win rates,
+            opening names). Lichess now requires a personal token for this endpoint — create a
+            free one at{" "}
+            <a
+              href="https://lichess.org/account/oauth/token"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline underline-offset-2 hover:text-foreground"
+            >
+              lichess.org/account/oauth/token
+            </a>{" "}
+            (no scopes needed — any token works). Without one, commentary still works, but the
+            assistant will say it can&apos;t look up opening statistics.
+          </p>
         </div>
       </CardContent>
     </Card>

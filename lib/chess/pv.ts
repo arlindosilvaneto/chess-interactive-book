@@ -21,6 +21,9 @@ export interface PvStep {
   san: string;
   /** Position immediately after this move — what a hover preview of this step should show. */
   fenAfter: string;
+  /** Squares this move touched — chess.js's own reported from/to, so castling already comes out as the king's squares (e.g. "e1"/"g1"), matching `lastMoveSquares`' convention for the main board's highlight. */
+  from: string;
+  to: string;
 }
 
 /**
@@ -59,7 +62,13 @@ export function uciLineToSteps(fen: string, uciMoves: string[]): PvStep[] {
     if (!move) break;
 
     const label = color === "w" ? `${moveNumber}.` : index === 0 ? `${moveNumber}…` : null;
-    steps.push({ label, san: move.san, fenAfter: chess.fen() });
+    steps.push({
+      label,
+      san: move.san,
+      fenAfter: chess.fen(),
+      from: move.from,
+      to: move.to,
+    });
 
     if (color === "w") {
       color = "b";

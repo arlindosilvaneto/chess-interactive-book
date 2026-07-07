@@ -12,7 +12,7 @@ export default async function ChapterPage({ params }: ChapterPageProps) {
   const found = findBookChapter(loadBooks(), bookId, chapterId);
   if (!found) notFound();
 
-  return <ChapterView chapter={found.chapter} />;
+  return <ChapterView chapter={found.chapter} bookId={bookId} />;
 }
 
 export function generateStaticParams() {

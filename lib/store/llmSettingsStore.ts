@@ -13,6 +13,7 @@ const DEFAULT_LLM_SETTINGS: LlmSettings = {
   model: "",
   apiKey: "",
   rating: 1500,
+  lichessApiToken: "",
 };
 
 interface LlmSettingsState {
@@ -21,6 +22,7 @@ interface LlmSettingsState {
   setModel: (model: string) => void;
   setApiKey: (apiKey: string) => void;
   setRating: (rating: number) => void;
+  setLichessApiToken: (lichessApiToken: string) => void;
   isConfigured: () => boolean;
 }
 
@@ -36,6 +38,8 @@ export const useLlmSettingsStore = create<LlmSettingsState>()(
         set((state) => ({ settings: { ...state.settings, apiKey } })),
       setRating: (rating) =>
         set((state) => ({ settings: { ...state.settings, rating } })),
+      setLichessApiToken: (lichessApiToken) =>
+        set((state) => ({ settings: { ...state.settings, lichessApiToken } })),
       isConfigured: () => {
         const { provider, model, apiKey } = get().settings;
         return Boolean(provider && model.trim() && apiKey.trim());

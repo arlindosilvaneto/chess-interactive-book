@@ -2,12 +2,16 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { useDebouncedValue } from "@/lib/hooks/useDebouncedValue";
 import { useEngineSettingsStore } from "@/lib/store/engineSettingsStore";
 
 import { StockfishClient, type EngineLine } from "./stockfish.worker";
 
 const SINGLE_THREAD_SCRIPT = "/stockfish/stockfish-18-lite-single.js";
 const MULTI_THREAD_SCRIPT = "/stockfish/stockfish-18.js";
+
+/** Holding an arrow key or clicking "next" repeatedly shouldn't restart the engine's search per intermediate position — wait for things to settle first. */
+const SEARCH_DEBOUNCE_MS = 300;
 
 /** The multi-threaded WASM build needs SharedArrayBuffer, gated on COOP/COEP headers. */
 export function supportsCrossOriginIsolation(): boolean {
@@ -122,20 +126,31 @@ export function useStockfish(
     client.setOption("Hash", settings.hashMb);
   }, [ready, settings.multiPv, settings.threads, settings.hashMb, usingMultiThread]);
 
-  // Kick off a new search whenever the position or depth changes.
-  useEffect(() => {
-    const client = clientRef.current;
-    if (!client || !ready || !enabled || !fen) return;
+  const debouncedFen = useDebouncedValue(fen, SEARCH_DEBOUNCE_MS);
 
-    // A new search is starting for a new position — previous results/best
-    // move no longer apply to what's about to be displayed.
+  // Instant feedback as soon as the position changes — previous results/best
+  // move no longer apply to what's about to be displayed — even though the
+  // actual (expensive) engine restart below is debounced, so paging quickly
+  // never shows a stale score left over from a previous position.
+  useEffect(() => {
+    if (!enabled || !fen) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLines([]);
     setBestMove(undefined);
     setAnalyzing(true);
+  }, [fen, enabled]);
+
+  // The actual engine restart — debounced so holding an arrow key or
+  // clicking "next" repeatedly through a line doesn't restart Stockfish's
+  // search once per intermediate position, only once things settle.
+  useEffect(() => {
+    const client = clientRef.current;
+    if (!client || !ready || !enabled || !debouncedFen) return;
+
     client.stop();
-    client.setPosition(fen);
+    client.setPosition(debouncedFen);
     client.go(settings.depth);
-  }, [fen, ready, enabled, settings.depth]);
+  }, [debouncedFen, ready, enabled, settings.depth]);
 
   return {
     ready,

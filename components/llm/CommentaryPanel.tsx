@@ -30,6 +30,8 @@ import type { ChatRequestBody } from "@/types/llm";
 
 export interface CommentaryPanelProps {
   chapter: Chapter;
+  /** Globally-unique store key for this chapter (`${bookId}__${chapter.id}`) — see `useChapterStore`'s `initChapter` doc comment. */
+  chapterKey: string;
   onOpenSettings?: () => void;
 }
 
@@ -45,10 +47,10 @@ function buildPgnContext(root: Chapter["root"], path: string[]): string {
  * board as "the position being discussed" and attaches its FEN + PGN-so-far
  * to every request alongside the user's LLM settings (provider/model/key/rating).
  */
-export function CommentaryPanel({ chapter, onOpenSettings }: CommentaryPanelProps) {
+export function CommentaryPanel({ chapter, chapterKey, onOpenSettings }: CommentaryPanelProps) {
   const settings = useLlmSettingsStore((state) => state.settings);
   const isConfigured = useLlmSettingsStore((state) => state.isConfigured());
-  const slice = useChapterStore((state) => state.chapters[chapter.id]);
+  const slice = useChapterStore((state) => state.chapters[chapterKey]);
 
   // Discuss whichever position the reader is currently focused on — the
   // deepest open board (the most specific thing they've drilled into),
@@ -61,14 +63,15 @@ export function CommentaryPanel({ chapter, onOpenSettings }: CommentaryPanelProp
 
   // The transport is created once and kept stable; its `body` reads the
   // stores' current state imperatively (via `getState()`) at send time
-  // rather than closing over a React ref, since `chapter` is the only
-  // render-scoped value it needs and that's stable for the panel's lifetime.
+  // rather than closing over a React ref, since `chapter`/`chapterKey` are
+  // the only render-scoped values it needs and both are stable for the
+  // panel's lifetime.
   const [transport] = useState(
     () =>
       new DefaultChatTransport({
         api: "/api/chat",
         body: (): Omit<ChatRequestBody, "messages"> => {
-          const currentSlice = useChapterStore.getState().chapters[chapter.id];
+          const currentSlice = useChapterStore.getState().chapters[chapterKey];
           const currentRoot = currentSlice?.root ?? chapter.root;
           const currentBoardPaths = currentSlice?.boardPaths ?? [[]];
           const currentPath = currentBoardPaths[currentBoardPaths.length - 1];

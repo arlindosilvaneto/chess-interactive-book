@@ -2,9 +2,23 @@
 
 import { useEffect, useState } from "react";
 
+import { useDebouncedValue } from "@/lib/hooks/useDebouncedValue";
 import type { CloudEvalResponse } from "@/types/lichess";
 
 import type { EngineLine } from "./stockfish.worker";
+
+/**
+ * Deliberately longer than the local/server engine hooks' debounce (300ms):
+ * Lichess's cloud-eval is a shared third-party resource with its own rate
+ * limits (confirmed live — even the standard starting position, which is
+ * always cached, started returning 429 "Too many requests" after enough
+ * cumulative requests), unlike local/server Stockfish which only cost this
+ * app's own CPU. Cloud is the default and generally best-quality source, so
+ * it's worth erring conservative here specifically to avoid tripping that
+ * limit during normal fast paging, even at the cost of feeling a bit less
+ * snappy than the other two sources.
+ */
+const FETCH_DEBOUNCE_MS = 1000;
 
 export interface UseCloudEvalOptions {
   /** Skips fetching at all while false — avoids one request per board when analysis is off. */
@@ -52,10 +66,16 @@ export function useCloudEval(
   const [error, setError] = useState<string | undefined>(undefined);
   const [notFound, setNotFound] = useState(false);
 
+  const debouncedFen = useDebouncedValue(fen, FETCH_DEBOUNCE_MS);
+
+  // Instant feedback as soon as the position changes: a cached position
+  // resolves immediately (no request needed, so no reason to wait for the
+  // debounce below); an uncached one shows loading right away even though
+  // the actual request is debounced, so paging quickly never displays a
+  // stale score left over from a previous position.
   useEffect(() => {
     if (!enabled || !fen) return;
 
-    const sideToMove: "w" | "b" = fen.split(" ")[1] === "b" ? "b" : "w";
     const key = cacheKey(fen, multiPv);
     const cached = cache.get(key);
 
@@ -69,17 +89,40 @@ export function useCloudEval(
       setAnalyzing(false);
       setLines(cached === "not-found" ? [] : cached);
       setNotFound(cached === "not-found");
+    } else {
+      setReady(false);
+      setAnalyzing(true);
+      setLines([]);
+    }
+  }, [fen, enabled, multiPv]);
+
+  // The actual network request — debounced so holding an arrow key or
+  // clicking "next" repeatedly through a line doesn't fire one Lichess
+  // lookup per intermediate position, only once things settle.
+  useEffect(() => {
+    if (!enabled || !debouncedFen) return;
+
+    const key = cacheKey(debouncedFen, multiPv);
+    const cached = cache.get(key);
+    // Someone else (another board analyzing the same position) may have
+    // populated the cache while this request sat waiting out the debounce —
+    // apply it directly rather than firing a redundant request.
+    if (cached) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setReady(true);
+      setAnalyzing(false);
+      setLines(cached === "not-found" ? [] : cached);
+      setNotFound(cached === "not-found");
       return;
     }
 
+    const sideToMove: "w" | "b" = debouncedFen.split(" ")[1] === "b" ? "b" : "w";
     const controller = new AbortController();
-    setReady(false);
-    setAnalyzing(true);
-    setLines([]);
 
-    fetch(`/api/lichess/cloud-eval?fen=${encodeURIComponent(fen)}&multiPv=${multiPv}`, {
-      signal: controller.signal,
-    })
+    fetch(
+      `/api/lichess/cloud-eval?fen=${encodeURIComponent(debouncedFen)}&multiPv=${multiPv}`,
+      { signal: controller.signal }
+    )
       .then(async (res) => {
         if (res.status === 404) {
           cache.set(key, "not-found");
@@ -120,7 +163,7 @@ export function useCloudEval(
       });
 
     return () => controller.abort();
-  }, [fen, enabled, multiPv]);
+  }, [debouncedFen, enabled, multiPv]);
 
   return {
     ready,

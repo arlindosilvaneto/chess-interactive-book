@@ -1,5 +1,7 @@
 "use client";
 
+import { Loader2Icon } from "lucide-react";
+
 import { Board } from "@/components/boards/Board";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { uciLineToSteps } from "@/lib/chess/pv";
@@ -26,6 +28,8 @@ export interface AnalysisLinesProps {
    * "still loading," rendered as skeleton rows instead of collapsing.
    */
   emptyMessage?: string;
+  /** True while `emptyMessage` describes ongoing work (e.g. the local fallback engine spinning up) rather than a terminal error — shows a spinner so a slower-than-usual wait doesn't read as stuck. */
+  emptyMessageBusy?: boolean;
   /** Matches the parent board's orientation so a line's hover-preview boards read the same way. */
   orientation?: "white" | "black";
   /** Prefix for hover-preview board DOM ids — must be unique per BoardCard instance to avoid id collisions between simultaneously-analyzing boards. */
@@ -47,6 +51,7 @@ export function AnalysisLines({
   lines,
   expectedLines,
   emptyMessage,
+  emptyMessageBusy = false,
   orientation = "white",
   idPrefix,
 }: AnalysisLinesProps) {
@@ -63,9 +68,22 @@ export function AnalysisLines({
           return index === 0 ? (
             <div
               key="empty-message"
-              className={cn(ROW_HEIGHT, "flex items-center px-1 text-sm text-muted-foreground")}
+              className={cn(
+                ROW_HEIGHT,
+                // `overflow-hidden` here isn't just clipping — flex items
+                // default to `min-height: auto`, which lets their content's
+                // min-content size override an explicit smaller `height`
+                // (the same quirk documented on EngineEvalBar). A long
+                // fallback message wrapping to two lines was growing this
+                // row past `h-7` and animating the whole card via
+                // BoardCard's `motion.div layout`. `overflow-hidden` makes
+                // the automatic minimum size 0 instead, so `h-7` actually
+                // holds; `truncate` below keeps the text itself to one line.
+                "flex items-center gap-1.5 overflow-hidden px-1 text-sm text-muted-foreground"
+              )}
             >
-              {emptyMessage}
+              {emptyMessageBusy && <Loader2Icon className="size-3.5 shrink-0 animate-spin" />}
+              <span className="min-w-0 truncate">{emptyMessage}</span>
             </div>
           ) : (
             <div key={`empty-spacer-${index}`} className={ROW_HEIGHT} aria-hidden />
@@ -118,6 +136,7 @@ export function AnalysisLines({
                         id={`${idPrefix}-preview-${line.multipv}-${stepIndex}`}
                         fen={step.fenAfter}
                         orientation={orientation}
+                        lastMove={{ from: step.from, to: step.to }}
                         interactive={false}
                         showNotation={false}
                       />

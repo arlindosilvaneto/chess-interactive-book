@@ -2,7 +2,7 @@ import { convertToModelMessages, stepCountIs, streamText } from "ai";
 import { z } from "zod";
 import { getLanguageModel } from "@/lib/ai/providers";
 import { buildSystemPrompt } from "@/lib/ai/systemPrompt";
-import { lichessTools } from "@/lib/ai/tools/lichess-tools";
+import { createLichessTools } from "@/lib/ai/tools/lichess-tools";
 
 export const runtime = "nodejs";
 
@@ -16,6 +16,10 @@ const chatRequestSchema = z.object({
     model: z.string().min(1),
     apiKey: z.string().min(1),
     rating: z.number(),
+    // BYOK, same handling as `apiKey` — optional because the opening-explorer
+    // tool degrades to reporting itself unavailable rather than failing the
+    // whole chat request when this is unset (see lib/ai/tools/lichess-tools.ts).
+    lichessApiToken: z.string().optional(),
   }),
   fen: z.string().min(1),
   pgnContext: z.string().optional(),
@@ -35,6 +39,7 @@ const chatRequestSchema = z.object({
  *       model: string;             // e.g. "gpt-5.1", "claude-sonnet-4-5"
  *       apiKey: string;            // user-supplied, BYOK — never logged/persisted
  *       rating: number;            // used to calibrate commentary tone/depth
+ *       lichessApiToken?: string;  // user-supplied, BYOK — enables the opening-explorer tool
  *     };
  *     fen: string;                 // FEN of the position currently being discussed
  *     pgnContext?: string;         // optional surrounding PGN/line text
@@ -69,7 +74,7 @@ export async function POST(req: Request) {
     // `messages` is validated as an array of UIMessage-shaped records above;
     // `convertToModelMessages` does its own structural checks on the parts it reads.
     messages: await convertToModelMessages(messages as Parameters<typeof convertToModelMessages>[0]),
-    tools: lichessTools,
+    tools: createLichessTools(llm.lichessApiToken),
     stopWhen: stepCountIs(5),
   });
 

@@ -10,21 +10,25 @@ export const LICHESS_TABLEBASE_BASE_URL = "https://tablebase.lichess.org";
 export const LICHESS_MAIN_BASE_URL = "https://lichess.org";
 
 /**
- * IMPORTANT: as verified live (2026-07), the Lichess Opening Explorer
- * (`/lichess`, `/masters`, `/player` on explorer.lichess.org) now requires an
- * authenticated request — unauthenticated requests return `401 Unauthorized`
- * — matching the `security: [OAuth2]` requirement in Lichess's own OpenAPI
- * spec (no specific scope needed, any personal API token works). This is a
- * change from the historically-public/unauthenticated explorer API.
+ * IMPORTANT: confirmed against Lichess's own OpenAPI spec
+ * (github.com/lichess-org/api, doc/specs/tags/openingexplorer/*.yaml) — the
+ * Opening Explorer (`/lichess`, `/masters`, `/player` on
+ * explorer.lichess.org) is declared `security: [OAuth2: []]` (any valid
+ * token, no specific scope required) and returns a live `401 Unauthorized`
+ * without one — confirmed live too. This is a change from the
+ * historically-public/unauthenticated explorer API. The Cloud Evaluation
+ * endpoint this app also uses is explicitly `security: []` (public) and is
+ * unaffected. The Tablebase API is likewise unauthenticated.
  *
- * Set `LICHESS_API_TOKEN` in the server environment (a Lichess personal API
- * token, see https://lichess.org/account/oauth/token) to enable these calls.
- * The Tablebase API (`tablebase.lichess.org`) is unaffected and remains
- * unauthenticated.
+ * `token` is normally the user's own BYOK Lichess token (`LlmSettings.lichessApiToken`,
+ * same handling as the LLM `apiKey` — see `lib/ai/tools/lichess-tools.ts`, the only
+ * caller that actually needs auth today). Falls back to `LICHESS_API_TOKEN` from the
+ * server environment when no explicit token is passed, for the proxy route's
+ * env-configured case.
  */
-export function lichessAuthHeaders(): HeadersInit {
-  const token = process.env.LICHESS_API_TOKEN;
-  return token ? { Authorization: `Bearer ${token}` } : {};
+export function lichessAuthHeaders(token?: string): HeadersInit {
+  const resolvedToken = token || process.env.LICHESS_API_TOKEN;
+  return resolvedToken ? { Authorization: `Bearer ${resolvedToken}` } : {};
 }
 
 export type ExplorerVariant =
@@ -101,24 +105,25 @@ function buildExplorerSearchParams(params: OpeningExplorerLichessParams): URLSea
 /**
  * Queries the Lichess Opening Explorer for aggregated Lichess-games
  * statistics (move popularity, win/draw/loss rates, opening name) at a given
- * position. Requires `LICHESS_API_TOKEN` to be set server-side (see notes
- * above) or upstream will respond 401.
+ * position. Requires a Lichess personal API token (see notes above) or
+ * upstream will respond 401 — callers should pass the user's own
+ * `LlmSettings.lichessApiToken` via `init.token`.
  */
 export async function getOpeningExplorerLichess(
   params: OpeningExplorerLichessParams,
-  init?: { signal?: AbortSignal },
+  init?: { signal?: AbortSignal; token?: string },
 ): Promise<OpeningExplorerResponse> {
   const searchParams = buildExplorerSearchParams(params);
 
   const res = await fetch(`${LICHESS_EXPLORER_BASE_URL}/lichess?${searchParams.toString()}`, {
-    headers: lichessAuthHeaders(),
+    headers: lichessAuthHeaders(init?.token),
     signal: init?.signal,
   });
 
   if (!res.ok) {
     throw new Error(
       `Lichess opening explorer request failed: ${res.status} ${res.statusText}` +
-        (res.status === 401 ? " (is LICHESS_API_TOKEN set?)" : ""),
+        (res.status === 401 ? " (invalid or expired Lichess API token?)" : ""),
     );
   }
 

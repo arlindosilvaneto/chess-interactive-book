@@ -13,6 +13,8 @@ import { ChapterIntro } from "./ChapterIntro";
 
 export interface GameTextProps {
   chapter: Chapter;
+  /** Globally-unique store key for this chapter (`${bookId}__${chapter.id}`) — see `useChapterStore`'s `initChapter` doc comment. */
+  chapterKey: string;
 }
 
 interface RenderCtx {
@@ -174,16 +176,16 @@ function renderLine(
  * colored and tinted by nesting depth so they're easy to spot at a glance)
  * and comments (as prose), instead of a separate per-board move list.
  */
-export function GameText({ chapter }: GameTextProps) {
+export function GameText({ chapter, chapterKey }: GameTextProps) {
   const initChapter = useChapterStore((state) => state.initChapter);
-  const slice = useChapterStore((state) => state.chapters[chapter.id]);
+  const slice = useChapterStore((state) => state.chapters[chapterKey]);
   const selectPath = useChapterStore((state) => state.selectPath);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    initChapter(chapter);
-  }, [chapter, initChapter]);
+    initChapter(chapterKey, chapter);
+  }, [chapter, chapterKey, initChapter]);
 
   // Whichever board is deepest/active — same "active" position used for
   // highlighting and keyboard navigation. Scroll its move-link into view
@@ -203,7 +205,7 @@ export function GameText({ chapter }: GameTextProps) {
 
   const ctx: RenderCtx = {
     boardPaths: slice.boardPaths,
-    onSelectPath: (path) => selectPath(chapter.id, path),
+    onSelectPath: (path) => selectPath(chapterKey, path),
   };
 
   const { color, moveNumber } = startingMoveInfo(slice.root.fenAfter);

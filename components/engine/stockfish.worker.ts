@@ -41,7 +41,8 @@ export interface StockfishClientCallbacks {
   onError?: (message: string) => void;
 }
 
-function parseInfoLine(line: string): EngineLine | null {
+/** Exported for reuse by `lib/engine/nodeStockfishEngine.ts` — the server-side engine speaks the same UCI text protocol, just without a Worker in between. */
+export function parseInfoLine(line: string): EngineLine | null {
   if (!line.startsWith("info") || !line.includes(" pv ")) return null;
 
   const depthMatch = line.match(/\bdepth (\d+)/);
@@ -60,7 +61,7 @@ function parseInfoLine(line: string): EngineLine | null {
   };
 }
 
-function parseBestMoveLine(line: string): EngineBestMove | null {
+export function parseBestMoveLine(line: string): EngineBestMove | null {
   const match = line.match(/^bestmove (\S+)(?: ponder (\S+))?/);
   if (!match) return null;
   return { bestMove: match[1], ponder: match[2] };
