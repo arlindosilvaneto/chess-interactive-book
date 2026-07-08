@@ -137,7 +137,12 @@
      larger type than the rest of the app's UI chrome (buttons, badges,
      panels), since sustained reading comfort is a stated product goal. */
   .book-content {
-    font-size: clamp(1rem, 0.95rem + 0.25vw, 1.1875rem);
+    /* The `vw` term (not just `rem`) is what makes this keep growing on wide
+       desktop viewports: `html`'s own clamp (above) plateaus at 18px by
+       ~1000px wide, so a purely rem-based size would plateau right along
+       with it. Scaling on viewport width directly instead keeps text
+       growing up to roughly 1900-2200px wide before hitting the cap. */
+    font-size: clamp(1rem, 0.82rem + 0.45vw, 1.25rem);
     line-height: 1.9;
   }
 }

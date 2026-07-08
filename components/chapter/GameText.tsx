@@ -71,7 +71,12 @@ function MoveLink({
           data-path={path.join("/")}
           onClick={() => ctx.onSelectPath(path)}
           className={cn(
-            "rounded px-0.5 font-medium text-foreground transition-colors hover:bg-accent",
+            "rounded px-0.5 text-foreground transition-colors hover:bg-accent",
+            // Weight, not color, marks the mainline as the "spine" of the
+            // game — variation moves stay at normal weight so bold reads as
+            // "main line" at a glance without competing with the per-depth
+            // variation colors used elsewhere (parens, tint, left border).
+            depth === 0 ? "font-semibold" : "font-normal",
             isActive && accent.active
           )}
         >
@@ -82,9 +87,18 @@ function MoveLink({
   );
 }
 
-function CommentText({ children }: { children: string }) {
+function CommentText({ children, depth }: { children: string; depth: number }) {
+  // Mainline prose reads as the book's own narration, so it gets full
+  // foreground contrast and upright type, matching ChapterIntro. Variation
+  // comments stay muted/italic — annotation on a sideline, not the main text.
+  const isMainline = depth === 0;
   return (
-    <span className="my-3 block text-pretty leading-relaxed text-muted-foreground italic first:mt-0">
+    <span
+      className={cn(
+        "my-3 block text-pretty leading-relaxed first:mt-0",
+        isMainline ? "text-foreground" : "text-muted-foreground italic"
+      )}
+    >
       {children}
     </span>
   );
@@ -123,8 +137,16 @@ function renderLine(
         ctx={ctx}
       />
     );
-    if (node.comment) {
-      out.push(<CommentText key={`comment-${path.join("/")}`}>{node.comment}</CommentText>);
+    // The very first mainline move's comment is `chapter.introComment`
+    // (see `parseChapter.ts`) and already rendered once by `ChapterIntro`
+    // above — skip it here so it doesn't appear twice in the flowing text.
+    const isChapterIntroComment = depth === 0 && path.length === 1;
+    if (node.comment && !isChapterIntroComment) {
+      out.push(
+        <CommentText key={`comment-${path.join("/")}`} depth={depth}>
+          {node.comment}
+        </CommentText>
+      );
     }
   }
 
@@ -150,16 +172,23 @@ function renderLine(
     const altDepth = depth + 1;
     const accent = variationAccent(altDepth);
     out.push(
-      <span
+      // Block-level (not inline) so a sideline reads as its own indented
+      // line rather than running inline after the move it branches from —
+      // indentation grows with nesting depth (capped so deeply-nested lines
+      // don't drift off the right edge) and the left border + tint repeat
+      // the same depth color used inline elsewhere (MoveLink, BoardCard).
+      <div
         key={`variation-${altPath.join("/")}`}
+        style={{ marginLeft: `${Math.min(altDepth, 4) * 1.25}rem` }}
         className={cn(
-          "mx-0.5 rounded px-1 text-[0.94em] italic before:content-['('] after:content-[')']",
+          "my-1.5 rounded-sm border-l-2 py-0.5 pl-2 text-[0.94em] italic leading-relaxed before:content-['('] after:content-[')']",
           accent.tint,
-          accent.paren
+          accent.paren,
+          accent.rule
         )}
       >
         {renderLine(alt, altPath, childColor, childMoveNumber, true, altDepth, ctx)}
-      </span>
+      </div>
     );
   }
 
