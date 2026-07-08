@@ -37,6 +37,15 @@ export interface UseCloudEvalResult {
   error: string | undefined;
   /** True when Lichess has no cached community analysis for this exact position — not an error. */
   notFound: boolean;
+  /**
+   * The FEN that `lines`/`bestMove` actually reflect — this trails the
+   * caller's `fen` argument while a request is in flight and stale results
+   * are being held over (see the instant-feedback effect below). Score sign
+   * is side-to-move-relative, so a caller must derive "which side" from
+   * *this* FEN, not from whatever position is now current, or a held-over
+   * score gets reinterpreted with the wrong side and its sign flips.
+   */
+  resultFen: string | undefined;
 }
 
 /** Positions repeat often when paging back and forth — cache avoids re-hitting Lichess (and its request budget). */
@@ -44,6 +53,23 @@ const cache = new Map<string, EngineLine[] | "not-found">();
 
 function cacheKey(fen: string, multiPv: number): string {
   return `${fen}::${multiPv}`;
+}
+
+/**
+ * Module-scope (not per-hook-instance) because Lichess's rate limit is a
+ * shared budget across every board on the page, not a per-board one — once
+ * one board gets 429'd, every other board's cloud lookup would fail too, so
+ * there's no point letting each of them independently rediscover that. Set
+ * on a real 429 response below; checked before firing (or even queueing) a
+ * request so the whole page skips straight to the fallback chain instead of
+ * spending a debounce window + a round trip on a request that would almost
+ * certainly 429 again.
+ */
+let rateLimitedUntil = 0;
+const RATE_LIMIT_COOLDOWN_MS = 3 * 60 * 1000;
+
+function isRateLimited(): boolean {
+  return Date.now() < rateLimitedUntil;
 }
 
 /**
@@ -65,34 +91,50 @@ export function useCloudEval(
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
   const [notFound, setNotFound] = useState(false);
+  const [resultFen, setResultFen] = useState<string | undefined>(undefined);
 
   const debouncedFen = useDebouncedValue(fen, FETCH_DEBOUNCE_MS);
 
   // Instant feedback as soon as the position changes: a cached position
   // resolves immediately (no request needed, so no reason to wait for the
-  // debounce below); an uncached one shows loading right away even though
-  // the actual request is debounced, so paging quickly never displays a
-  // stale score left over from a previous position.
+  // debounce below). An uncached one deliberately does NOT clear `lines` —
+  // it flips `ready`/`analyzing` so callers can show a busy indicator, but
+  // leaves the previous position's score in place until the real request
+  // (below) actually resolves. Clearing eagerly used to make the eval bar
+  // flick to neutral and back on every move; holding the stale value is a
+  // better trade than that flicker, since it's only ever visible for the
+  // ~1s debounce window (or a failed/slow request) before being replaced.
   useEffect(() => {
     if (!enabled || !fen) return;
 
     const key = cacheKey(fen, multiPv);
     const cached = cache.get(key);
 
-    // A fresh position is being looked up — previous results no longer apply.
+    // A fresh position is being looked up — previous error/not-found status
+    // no longer applies (but `lines` does, see above).
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setError(undefined);
     setNotFound(false);
 
     if (cached) {
+      setError(undefined);
       setReady(true);
       setAnalyzing(false);
       setLines(cached === "not-found" ? [] : cached);
       setNotFound(cached === "not-found");
+      setResultFen(fen);
+    } else if (isRateLimited()) {
+      // Still cooling down from a recent 429 — report failure immediately
+      // (see `rateLimitedUntil`'s doc comment) rather than waiting out the
+      // debounce and a request that would almost certainly fail again.
+      // BoardCard reads this as `cloudFailed` and engages the fallback
+      // chain right away.
+      setError("Lichess cloud evaluation is rate-limited — using fallback engine for a few minutes.");
+      setReady(true);
+      setAnalyzing(false);
     } else {
+      setError(undefined);
       setReady(false);
       setAnalyzing(true);
-      setLines([]);
     }
   }, [fen, enabled, multiPv]);
 
@@ -101,6 +143,9 @@ export function useCloudEval(
   // lookup per intermediate position, only once things settle.
   useEffect(() => {
     if (!enabled || !debouncedFen) return;
+    // Already reported as failed by the instant-feedback effect above —
+    // don't spend a request confirming what's already known.
+    if (isRateLimited()) return;
 
     const key = cacheKey(debouncedFen, multiPv);
     const cached = cache.get(key);
@@ -113,6 +158,7 @@ export function useCloudEval(
       setAnalyzing(false);
       setLines(cached === "not-found" ? [] : cached);
       setNotFound(cached === "not-found");
+      setResultFen(debouncedFen);
       return;
     }
 
@@ -127,7 +173,20 @@ export function useCloudEval(
         if (res.status === 404) {
           cache.set(key, "not-found");
           setNotFound(true);
+          // "No cloud data for this position" is a conclusive result for
+          // debouncedFen, not "still working" — unlike the other branches
+          // here, any held-over stale `lines` must be cleared now, or a
+          // score computed for a *different* position would keep showing
+          // paired with this (now up-to-date) resultFen/side-to-move.
+          setLines([]);
+          setResultFen(debouncedFen);
           return;
+        }
+        if (res.status === 429) {
+          rateLimitedUntil = Date.now() + RATE_LIMIT_COOLDOWN_MS;
+          throw new Error(
+            "Lichess cloud evaluation is rate-limited — using fallback engine for a few minutes."
+          );
         }
         if (!res.ok) {
           throw new Error(`Lichess cloud eval request failed (${res.status}).`);
@@ -149,6 +208,7 @@ export function useCloudEval(
         cache.set(key, converted);
         setDepth(data.depth);
         setLines(converted);
+        setResultFen(debouncedFen);
       })
       .catch((cause: unknown) => {
         if (controller.signal.aborted) return;
@@ -173,5 +233,6 @@ export function useCloudEval(
     engineLabel: depth != null ? `Lichess cloud analysis (depth ${depth})` : "Lichess cloud analysis",
     error,
     notFound,
+    resultFen,
   };
 }

@@ -147,6 +147,15 @@ export function BoardCard({
           ? stockfish
           : cloudEval;
   const primaryLine = engine.lines[0];
+  // `engine.lines` may be held over from a previous position (see the
+  // engine hooks' doc comments) — a score's cp/mate is side-to-move-
+  // relative, so it must be paired with the side-to-move of whichever
+  // position it was actually computed for (`resultFen`), not the board's
+  // current position, or a held-over score gets its sign flipped the
+  // instant the actual side to move changes. Falls back to `currentFen`
+  // only when nothing has ever resolved yet (resultFen undefined).
+  const evalFen = engine.resultFen ?? currentFen;
+  const evalSideToMove: "w" | "b" = evalFen.split(" ")[1] === "b" ? "b" : "w";
   const accent = boardAccent(levelIndex);
   const isMainline = levelIndex === 0;
 
@@ -167,7 +176,11 @@ export function BoardCard({
   // cases (cloud lookup, local/server engine startup) as well as the slower
   // multi-tier fallback handoffs this was specifically added to make less
   // confusing (each hop can take noticeably longer than a plain cloud hit).
-  const analysisBusy = analysisEnabled && !engine.error && engine.lines.length === 0;
+  // Uses `analyzing` rather than `engine.lines.length === 0`: the engine
+  // hooks now hold the previous position's `lines` until a new result
+  // arrives (see their doc comments), so an empty-lines check would miss
+  // an in-flight request for a position that already has a stale score.
+  const analysisBusy = analysisEnabled && !engine.error && engine.analyzing;
   const footerStatusText = !analysisEnabled
     ? "Analysis off"
     : engine.error
@@ -325,7 +338,7 @@ export function BoardCard({
                     ? { cp: primaryLine.scoreCp, mate: primaryLine.scoreMate }
                     : undefined
                 }
-                sideToMove={sideToMove}
+                sideToMove={evalSideToMove}
                 orientation={orientation}
               />
             )}
@@ -395,8 +408,12 @@ export function BoardCard({
 
           {analysisEnabled && (
             <AnalysisLines
-              fen={currentFen}
-              sideToMove={sideToMove}
+              // `evalFen` (not `currentFen`): `engine.lines` may still be a
+              // held-over result for the previous position, and its PV
+              // moves only replay correctly from the position they were
+              // actually computed against — see `evalFen`'s doc comment.
+              fen={evalFen}
+              sideToMove={evalSideToMove}
               lines={engine.lines}
               expectedLines={multiPv}
               emptyMessage={analysisEmptyMessage}

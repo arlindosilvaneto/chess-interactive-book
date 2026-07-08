@@ -33,6 +33,14 @@ export interface UseStockfishResult {
   usingMultiThread: boolean;
   /** Set if the worker script failed to load, or never became ready. */
   error: string | undefined;
+  /**
+   * The FEN that `lines`/`bestMove` actually reflect — trails the caller's
+   * `fen` argument while a search is in flight and a stale result is being
+   * held over. See `useCloudEval`'s identical field for why a caller must
+   * derive side-to-move from this, not from whatever position is now
+   * current.
+   */
+  resultFen: string | undefined;
 }
 
 /** If the engine hasn't reported ready by this point, treat it as a load failure
@@ -55,6 +63,13 @@ export function useStockfish(
   const [lines, setLines] = useState<EngineLine[]>([]);
   const [bestMove, setBestMove] = useState<string | undefined>(undefined);
   const [error, setError] = useState<string | undefined>(undefined);
+  const [resultFen, setResultFen] = useState<string | undefined>(undefined);
+  // Mutable, not state: read from the `onInfo`/`onBestMove` closures (set up
+  // once per worker lifetime) to know which FEN the search *currently*
+  // running against the engine was started for — updated synchronously
+  // right before each `client.go()` below, so even info lines that arrive
+  // before React re-renders are attributed to the right position.
+  const searchFenRef = useRef<string | undefined>(undefined);
 
   // Create/tear down the worker when analysis is (de)activated or the
   // chosen build changes.
@@ -69,6 +84,8 @@ export function useStockfish(
     setLines([]);
     setBestMove(undefined);
     setError(undefined);
+    setResultFen(undefined);
+    searchFenRef.current = undefined;
 
     const readyTimeout = window.setTimeout(() => {
       setError((prev) => prev ?? "Engine did not respond — it may have failed to load.");
@@ -88,6 +105,7 @@ export function useStockfish(
         setReady(true);
       },
       onInfo: (line) => {
+        setResultFen(searchFenRef.current);
         setLines((prev) => {
           const next = prev.filter(
             (existing) => existing.multipv !== line.multipv
@@ -98,6 +116,7 @@ export function useStockfish(
         });
       },
       onBestMove: (result) => {
+        setResultFen(searchFenRef.current);
         setBestMove(result.bestMove);
         setAnalyzing(false);
       },
@@ -128,15 +147,15 @@ export function useStockfish(
 
   const debouncedFen = useDebouncedValue(fen, SEARCH_DEBOUNCE_MS);
 
-  // Instant feedback as soon as the position changes — previous results/best
-  // move no longer apply to what's about to be displayed — even though the
-  // actual (expensive) engine restart below is debounced, so paging quickly
-  // never shows a stale score left over from a previous position.
+  // Instant feedback as soon as the position changes — flips `analyzing` so
+  // callers can show a busy indicator, but deliberately leaves `lines`/
+  // `bestMove` alone (the previous position's result) until the debounced
+  // restart below produces a new one via `onInfo`/`onBestMove` — clearing
+  // eagerly here used to make the eval bar flick to neutral and back on
+  // every move.
   useEffect(() => {
     if (!enabled || !fen) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setLines([]);
-    setBestMove(undefined);
     setAnalyzing(true);
   }, [fen, enabled]);
 
@@ -147,6 +166,7 @@ export function useStockfish(
     const client = clientRef.current;
     if (!client || !ready || !enabled || !debouncedFen) return;
 
+    searchFenRef.current = debouncedFen;
     client.stop();
     client.setPosition(debouncedFen);
     client.go(settings.depth);
@@ -162,5 +182,6 @@ export function useStockfish(
       : "Stockfish 18 Lite (single-thread)",
     usingMultiThread,
     error,
+    resultFen,
   };
 }

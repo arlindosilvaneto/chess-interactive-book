@@ -25,6 +25,13 @@ export interface UseServerStockfishResult {
   bestMove: string | undefined;
   engineLabel: string;
   error: string | undefined;
+  /**
+   * The FEN that `lines`/`bestMove` actually reflect — trails `fen` while a
+   * request is in flight and a stale result is being held over. See
+   * `useCloudEval`'s identical field for why a caller must derive
+   * side-to-move from this, not from whatever position is now current.
+   */
+  resultFen: string | undefined;
 }
 
 interface EvaluateResponse {
@@ -59,11 +66,15 @@ export function useServerStockfish(
   const [ready, setReady] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
+  const [resultFen, setResultFen] = useState<string | undefined>(undefined);
 
   const debouncedFen = useDebouncedValue(fen, FETCH_DEBOUNCE_MS);
 
   // Instant feedback as soon as the position (or depth/multiPv) changes —
   // see useCloudEval's identically-shaped effect for the full rationale.
+  // Deliberately does not clear `lines`/`bestMove` on an uncached change —
+  // holding the previous position's result until the real request settles
+  // avoids the eval bar flicking to neutral and back on every move.
   useEffect(() => {
     if (!enabled || !fen) return;
 
@@ -77,11 +88,10 @@ export function useServerStockfish(
       setAnalyzing(false);
       setLines(cached.lines);
       setBestMove(cached.bestMove);
+      setResultFen(fen);
     } else {
       setReady(false);
       setAnalyzing(true);
-      setLines([]);
-      setBestMove(undefined);
     }
   }, [fen, enabled, depth, multiPv]);
 
@@ -97,6 +107,7 @@ export function useServerStockfish(
       setAnalyzing(false);
       setLines(cached.lines);
       setBestMove(cached.bestMove);
+      setResultFen(debouncedFen);
       return;
     }
 
@@ -119,6 +130,7 @@ export function useServerStockfish(
         cache.set(key, result);
         setLines(result.lines);
         setBestMove(result.bestMove);
+        setResultFen(debouncedFen);
       })
       .catch((cause: unknown) => {
         if (controller.signal.aborted) return;
@@ -142,5 +154,6 @@ export function useServerStockfish(
     bestMove,
     engineLabel: "Stockfish 18 Lite (server)",
     error,
+    resultFen,
   };
 }

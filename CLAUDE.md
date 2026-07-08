@@ -196,13 +196,20 @@ only failure mode to guard against here.
 
 **Debouncing** (`lib/hooks/useDebouncedValue.ts`): all three hooks (cloud, local, server) split
 their work into two effects keyed on the raw `fen` vs. a `useDebouncedValue(fen, N)`-derived one.
-The raw-`fen` effect only ever does cheap, synchronous things — a cache hit resolves instantly, an
-uncached position clears `lines`/flips to a loading state — so paging quickly through a line never
-shows a stale score left over from a previous position. The actual expensive call (the Lichess
-fetch, telling the Stockfish worker to stop/reposition/go, or the `/api/engine/evaluate` request) is
-keyed on the debounced value, so holding an arrow key or clicking "next" repeatedly fires it once,
-after the position settles, not once per intermediate position. Don't collapse this back into a
-single fen-keyed effect — that's what caused the request/search spam this was added to fix.
+The raw-`fen` effect only ever does cheap, synchronous things — a cache hit resolves instantly; an
+uncached position flips `ready`/`analyzing` (so callers can show a busy indicator) but deliberately
+does **not** clear `lines`/`bestMove` — the previous position's result stays on screen (`BoardCard`'s
+eval bar and analysis-lines panel included) until the real request below actually resolves. This used
+to clear eagerly instead, on the theory that showing a stale score was worse than a brief "no data"
+state — in practice that made the eval bar flick to neutral and back on every single move, which read
+as more broken than a score that's very briefly one move behind. `BoardCard`'s "busy" indicators key
+off each hook's `analyzing` flag, not `lines.length === 0`, precisely because `lines` may legitimately
+be non-empty (stale) while a request for the current position is still in flight. The actual expensive
+call (the Lichess fetch, telling the Stockfish worker to stop/reposition/go, or the
+`/api/engine/evaluate` request) is keyed on the debounced value, so holding an arrow key or clicking
+"next" repeatedly fires it once, after the position settles, not once per intermediate position. Don't
+collapse this back into a single fen-keyed effect — that's what caused the request/search spam this
+was added to fix.
 
 `N` deliberately differs by source: local/server are 300ms (`useStockfish.ts`,
 `useServerStockfish.ts`) since their only cost is this app's own CPU; cloud is **1000ms**
@@ -210,6 +217,16 @@ single fen-keyed effect — that's what caused the request/search spam this was 
 live, even the standard starting position (always cached) started returning `429 Too many requests`
 after enough cumulative requests during this app's own development. Don't shrink cloud's debounce
 back down to match the others without re-considering that tradeoff.
+
+**Cloud rate-limit circuit breaker** (`useCloudEval.ts`): a real `429` sets a module-scope
+`rateLimitedUntil` timestamp (3 minutes out, `RATE_LIMIT_COOLDOWN_MS`) — deliberately module-scope, not
+per-hook-instance state, since Lichess's rate limit is a budget shared across every board on the page,
+not a per-board one. While the cooldown is active, both the instant-feedback effect and the debounced
+fetch effect short-circuit to an immediate `error` (via `isRateLimited()`) instead of waiting out the
+debounce and spending a request that would almost certainly 429 again — this is what lets
+`BoardCard`'s fallback chain (→ server → local) engage immediately for every board, for the rest of the
+cooldown window, rather than every board re-discovering the same 429 independently. No polling/timer
+resets it early — the next position change after the cooldown elapses naturally resumes cloud lookups.
 
 ### LLM commentary (BYOK)
 
